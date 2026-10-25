@@ -9,7 +9,8 @@ namespace xray::analyzers {
 enum class DeobfuscationType {
     Base64,
     Xor1Byte,
-    Xor2Byte
+    Xor2Byte,
+    XorWide1Byte
 };
 
 struct DeobfuscatedString {
@@ -31,6 +32,7 @@ public:
 
 private:
     static void scan_xor_1byte(std::span<const uint8_t> buffer, DeobfuscationResult& result);
+    static void scan_xor_wide_1byte(std::span<const uint8_t> buffer, DeobfuscationResult& result);
     static void scan_xor_2byte(std::span<const uint8_t> buffer, DeobfuscationResult& result);
     static void scan_base64(std::span<const uint8_t> buffer, DeobfuscationResult& result);
     static std::string expand_xor_string(std::span<const uint8_t> buffer, size_t match_offset, size_t match_len, uint16_t key, bool is_2byte);

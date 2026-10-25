@@ -6,51 +6,106 @@ namespace xray::analyzers {
 std::string IatAnalyzer::category_to_string(ApiCategory cat) {
     switch (cat) {
         case ApiCategory::ProcessInjection:    return "Process Injection";
-        case ApiCategory::DefenseEvasion:       return "Defense Evasion";
-        case ApiCategory::DynamicLoading:       return "Dynamic Resolution";
-        case ApiCategory::MemoryManipulation:   return "Memory Manipulation";
-        case ApiCategory::ProcessCreation:      return "Process Creation";
-        case ApiCategory::SystemDiscovery:      return "System Discovery";
+        case ApiCategory::DefenseEvasion:      return "Defense Evasion";
+        case ApiCategory::DynamicLoading:      return "Dynamic Resolution";
+        case ApiCategory::MemoryManipulation:  return "Memory Manipulation";
+        case ApiCategory::ProcessCreation:     return "Process Creation";
+        case ApiCategory::SystemDiscovery:     return "Anti-Debug / Discovery";
+        case ApiCategory::NetworkC2:           return "Network / C2";
+        case ApiCategory::Cryptography:        return "Cryptography";
+        case ApiCategory::SpywareKeylogging:   return "Spyware / Hooking";
     }
     return "Unknown";
 }
 
 void IatAnalyzer::triage_api(const std::string& module_name, const std::string& func_name, IatAnalysisResult& result) {
     static const std::unordered_map<std::string, std::pair<ApiCategory, std::string>> known_threats = {
-        {"VirtualAllocEx",       {ApiCategory::ProcessInjection, "Remote memory allocation"}},
-        {"WriteProcessMemory",   {ApiCategory::ProcessInjection, "Writing to foreign process memory"}},
-        {"CreateRemoteThread",   {ApiCategory::ProcessInjection, "Remote thread execution"}},
-        {"QueueUserAPC",         {ApiCategory::ProcessInjection, "Asynchronous Procedure Call injection"}},
-        {"SetThreadContext",     {ApiCategory::ProcessInjection, "Thread hijacking / context manipulation"}},
-        {"NtQueueApcThread",     {ApiCategory::ProcessInjection, "Native APC injection"}},
-        {"RtlCreateUserThread",  {ApiCategory::ProcessInjection, "Native thread injection"}},
+        {"VirtualAllocEx",            {ApiCategory::ProcessInjection, "Remote memory allocation"}},
+        {"WriteProcessMemory",        {ApiCategory::ProcessInjection, "Writing to foreign process memory"}},
+        {"CreateRemoteThread",        {ApiCategory::ProcessInjection, "Remote thread execution"}},
+        {"CreateRemoteThreadEx",      {ApiCategory::ProcessInjection, "Extended remote thread execution"}},
+        {"QueueUserAPC",              {ApiCategory::ProcessInjection, "Asynchronous Procedure Call injection"}},
+        {"SetThreadContext",          {ApiCategory::ProcessInjection, "Thread hijacking / context manipulation"}},
+        {"GetThreadContext",          {ApiCategory::ProcessInjection, "Thread register state inspection"}},
+        {"SuspendThread",             {ApiCategory::ProcessInjection, "Thread suspension for hijacking/hollowing"}},
+        {"ResumeThread",              {ApiCategory::ProcessInjection, "Resuming hollowed or hijacked thread"}},
+        {"NtQueueApcThread",          {ApiCategory::ProcessInjection, "Native APC injection"}},
+        {"RtlCreateUserThread",       {ApiCategory::ProcessInjection, "Native thread injection"}},
+        {"NtUnmapViewOfSection",      {ApiCategory::ProcessInjection, "Process hollowing image unmapping"}},
+        {"ZwUnmapViewOfSection",      {ApiCategory::ProcessInjection, "Process hollowing image unmapping"}},
+        {"NtMapViewOfSection",        {ApiCategory::ProcessInjection, "Section memory mapping into process"}},
 
-        {"AmsiScanBuffer",       {ApiCategory::DefenseEvasion, "AMSI inspection hook target"}},
-        {"AmsiScanString",       {ApiCategory::DefenseEvasion, "AMSI inspection hook target"}},
-        {"EtwEventWrite",        {ApiCategory::DefenseEvasion, "ETW event logging target"}},
-        {"MiniDumpWriteDump",    {ApiCategory::DefenseEvasion, "Process memory dumping (LSASS)"}},
-        {"AdjustTokenPrivileges",{ApiCategory::DefenseEvasion, "Token privilege escalation"}},
+        {"AmsiScanBuffer",            {ApiCategory::DefenseEvasion, "AMSI inspection hook target"}},
+        {"AmsiScanString",            {ApiCategory::DefenseEvasion, "AMSI inspection hook target"}},
+        {"AmsiInitialize",            {ApiCategory::DefenseEvasion, "AMSI context initialization"}},
+        {"EtwEventWrite",             {ApiCategory::DefenseEvasion, "ETW event logging patch target"}},
+        {"NtTraceEvent",              {ApiCategory::DefenseEvasion, "Native ETW telemetry target"}},
+        {"MiniDumpWriteDump",         {ApiCategory::DefenseEvasion, "Process memory dumping (LSASS)"}},
+        {"AdjustTokenPrivileges",     {ApiCategory::DefenseEvasion, "Token privilege escalation"}},
+        {"ImpersonateLoggedOnUser",   {ApiCategory::DefenseEvasion, "User token impersonation"}},
+        {"DuplicateTokenEx",          {ApiCategory::DefenseEvasion, "Token duplication for lateral movement"}},
 
-        {"LoadLibraryA",         {ApiCategory::DynamicLoading, "Runtime DLL loading"}},
-        {"LoadLibraryW",         {ApiCategory::DynamicLoading, "Runtime DLL loading"}},
-        {"LoadLibraryExA",       {ApiCategory::DynamicLoading, "Runtime DLL loading"}},
-        {"LoadLibraryExW",       {ApiCategory::DynamicLoading, "Runtime DLL loading"}},
-        {"GetProcAddress",       {ApiCategory::DynamicLoading, "Runtime API resolution"}},
-        {"LdrLoadDll",           {ApiCategory::DynamicLoading, "Native runtime DLL loading"}},
-        {"LdrGetProcedureAddress",{ApiCategory::DynamicLoading, "Native API resolution"}},
+        {"LoadLibraryA",              {ApiCategory::DynamicLoading, "Runtime DLL loading"}},
+        {"LoadLibraryW",              {ApiCategory::DynamicLoading, "Runtime DLL loading"}},
+        {"LoadLibraryExA",            {ApiCategory::DynamicLoading, "Runtime DLL loading"}},
+        {"LoadLibraryExW",            {ApiCategory::DynamicLoading, "Runtime DLL loading"}},
+        {"GetProcAddress",            {ApiCategory::DynamicLoading, "Runtime API resolution"}},
+        {"LdrLoadDll",                {ApiCategory::DynamicLoading, "Native runtime DLL loading"}},
+        {"LdrGetProcedureAddress",    {ApiCategory::DynamicLoading, "Native API resolution"}},
 
-        {"VirtualAlloc",         {ApiCategory::MemoryManipulation, "Executable memory allocation"}},
-        {"VirtualProtect",       {ApiCategory::MemoryManipulation, "Memory permission modification"}},
-        {"VirtualProtectEx",     {ApiCategory::MemoryManipulation, "Remote memory permission modification"}},
+        {"VirtualAlloc",              {ApiCategory::MemoryManipulation, "Executable memory allocation"}},
+        {"VirtualProtect",            {ApiCategory::MemoryManipulation, "Memory permission modification"}},
+        {"VirtualProtectEx",          {ApiCategory::MemoryManipulation, "Remote memory permission modification"}},
+        {"NtAllocateVirtualMemory",   {ApiCategory::MemoryManipulation, "Native virtual memory allocation"}},
+        {"NtProtectVirtualMemory",    {ApiCategory::MemoryManipulation, "Native memory permission change"}},
+        {"HeapCreate",                {ApiCategory::MemoryManipulation, "Private executable heap creation"}},
 
-        {"CreateProcessA",       {ApiCategory::ProcessCreation, "Spawning subprocess"}},
-        {"CreateProcessW",       {ApiCategory::ProcessCreation, "Spawning subprocess"}},
-        {"WinExec",              {ApiCategory::ProcessCreation, "Spawning command line"}},
-        {"ShellExecuteA",        {ApiCategory::ProcessCreation, "Shell execution"}},
-        {"ShellExecuteW",        {ApiCategory::ProcessCreation, "Shell execution"}},
+        {"CreateProcessA",            {ApiCategory::ProcessCreation, "Spawning subprocess"}},
+        {"CreateProcessW",            {ApiCategory::ProcessCreation, "Spawning subprocess"}},
+        {"CreateProcessInternalW",    {ApiCategory::ProcessCreation, "Internal process creation"}},
+        {"CreateProcessAsUserA",      {ApiCategory::ProcessCreation, "Spawning process under alternate token"}},
+        {"CreateProcessAsUserW",      {ApiCategory::ProcessCreation, "Spawning process under alternate token"}},
+        {"WinExec",                   {ApiCategory::ProcessCreation, "Spawning command line"}},
+        {"ShellExecuteA",             {ApiCategory::ProcessCreation, "Shell execution"}},
+        {"ShellExecuteW",             {ApiCategory::ProcessCreation, "Shell execution"}},
+        {"ShellExecuteExA",           {ApiCategory::ProcessCreation, "Extended shell execution"}},
+        {"ShellExecuteExW",           {ApiCategory::ProcessCreation, "Extended shell execution"}},
 
-        {"IsDebuggerPresent",    {ApiCategory::SystemDiscovery, "Anti-debugging check"}},
-        {"CheckRemoteDebuggerPresent", {ApiCategory::SystemDiscovery, "Anti-debugging check"}}
+        {"IsDebuggerPresent",         {ApiCategory::SystemDiscovery, "Anti-debugging check"}},
+        {"CheckRemoteDebuggerPresent",{ApiCategory::SystemDiscovery, "Remote anti-debugging check"}},
+        {"NtQueryInformationProcess", {ApiCategory::SystemDiscovery, "Process debug port / state query"}},
+        {"CreateToolhelp32Snapshot",  {ApiCategory::SystemDiscovery, "Process / thread enumeration"}},
+        {"Process32FirstW",           {ApiCategory::SystemDiscovery, "Process list iteration"}},
+        {"Process32NextW",            {ApiCategory::SystemDiscovery, "Process list iteration"}},
+
+        {"InternetOpenA",             {ApiCategory::NetworkC2, "WinINet session initialization"}},
+        {"InternetOpenW",             {ApiCategory::NetworkC2, "WinINet session initialization"}},
+        {"InternetOpenUrlA",          {ApiCategory::NetworkC2, "Direct URL connection"}},
+        {"InternetOpenUrlW",          {ApiCategory::NetworkC2, "Direct URL connection"}},
+        {"HttpSendRequestA",          {ApiCategory::NetworkC2, "HTTP request transmission"}},
+        {"HttpSendRequestW",          {ApiCategory::NetworkC2, "HTTP request transmission"}},
+        {"WinHttpOpen",               {ApiCategory::NetworkC2, "WinHTTP session initialization"}},
+        {"URLDownloadToFileA",        {ApiCategory::NetworkC2, "Direct file download to disk"}},
+        {"URLDownloadToFileW",        {ApiCategory::NetworkC2, "Direct file download to disk"}},
+        {"WSAStartup",                {ApiCategory::NetworkC2, "Raw Winsock initialization"}},
+        {"WSASocketA",                {ApiCategory::NetworkC2, "Raw socket creation"}},
+        {"WSASocketW",                {ApiCategory::NetworkC2, "Raw socket creation"}},
+
+        {"CryptEncrypt",              {ApiCategory::Cryptography, "CryptoAPI data encryption"}},
+        {"CryptDecrypt",              {ApiCategory::Cryptography, "CryptoAPI data decryption"}},
+        {"CryptAcquireContextA",      {ApiCategory::Cryptography, "Cryptographic provider initialization"}},
+        {"CryptAcquireContextW",      {ApiCategory::Cryptography, "Cryptographic provider initialization"}},
+        {"BCryptEncrypt",             {ApiCategory::Cryptography, "CNG data encryption"}},
+        {"BCryptDecrypt",             {ApiCategory::Cryptography, "CNG data decryption"}},
+        {"SystemFunction032",         {ApiCategory::Cryptography, "Undocumented RC4 encryption routine"}},
+        {"SystemFunction033",         {ApiCategory::Cryptography, "Undocumented RC4 encryption routine"}},
+
+        {"SetWindowsHookExA",         {ApiCategory::SpywareKeylogging, "Global event/keystroke hooking"}},
+        {"SetWindowsHookExW",         {ApiCategory::SpywareKeylogging, "Global event/keystroke hooking"}},
+        {"GetAsyncKeyState",          {ApiCategory::SpywareKeylogging, "Keystroke polling"}},
+        {"GetKeyState",               {ApiCategory::SpywareKeylogging, "Keystroke state inspection"}},
+        {"GetClipboardData",          {ApiCategory::SpywareKeylogging, "Clipboard data harvesting"}},
+        {"BitBlt",                    {ApiCategory::SpywareKeylogging, "Screen capture / GDI copy"}}
     };
 
     auto it = known_threats.find(func_name);
@@ -130,7 +185,6 @@ IatAnalysisResult IatAnalyzer::analyze(const pe::PeParser& parser) {
                             }
                         }
                     } else {
-                        // Import by ordinal
                         uint16_t ordinal = static_cast<uint16_t>(*thunk64 & 0xFFFF);
                         lib.functions.push_back("Ordinal#" + std::to_string(ordinal));
                         ++result.total_import_count;
@@ -158,7 +212,6 @@ IatAnalysisResult IatAnalyzer::analyze(const pe::PeParser& parser) {
                             }
                         }
                     } else {
-                        // Import by ordinal
                         uint16_t ordinal = static_cast<uint16_t>(*thunk32 & 0xFFFF);
                         lib.functions.push_back("Ordinal#" + std::to_string(ordinal));
                         ++result.total_import_count;

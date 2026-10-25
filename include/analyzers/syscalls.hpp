@@ -8,7 +8,9 @@ namespace xray::analyzers {
 
 enum class SyscallType {
     Direct,
-    Indirect
+    Indirect,
+    PebWalk64,
+    PebWalk32
 };
 
 struct SyscallStub {

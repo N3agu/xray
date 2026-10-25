@@ -11,6 +11,8 @@ std::string StringsAnalyzer::category_to_string(StringCategory cat) {
         case StringCategory::RegistryKey:       return "Registry Key";
         case StringCategory::FilePath:          return "File/Directory Path";
         case StringCategory::SuspiciousCommand: return "Suspicious Command";
+        case StringCategory::NamedPipe:         return "Named Pipe (IPC/C2)";
+        case StringCategory::CryptoWallet:      return "Crypto Wallet";
     }
     return "Unknown";
 }
@@ -20,7 +22,10 @@ void StringsAnalyzer::classify_string(const std::string& str, uint32_t offset, S
         R"((https?|ftp)://[a-zA-Z0-9\-\._~:/\?#\[\]@!$&'\(\)\*\+,;=]+)",
         std::regex::optimize
     );
-    // Standard dotted-decimal IPv4 representation
+    static const std::regex pipe_regex(
+        R"(\\\\(?:\.|[^\s\\]+)\\pipe\\[^\s\\]+)",
+        std::regex::optimize | std::regex::icase
+    );
     static const std::regex ip_regex(
         R"(\b(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\b)",
         std::regex::optimize
@@ -34,13 +39,29 @@ void StringsAnalyzer::classify_string(const std::string& str, uint32_t offset, S
         std::regex::optimize
     );
     static const std::regex cmd_regex(
-        R"(\b(powershell(?:\.exe)?|cmd(?:\.exe)?|wscript(?:\.exe)?|cscript(?:\.exe)?|certutil(?:\.exe)?|bitsadmin(?:\.exe)?|vssadmin(?:\.exe)?|schtasks(?:\.exe)?|regsvr32(?:\.exe)?)\b)",
+        R"(\b(powershell(?:\.exe)?|pwsh(?:\.exe)?|cmd(?:\.exe)?|wscript(?:\.exe)?|cscript(?:\.exe)?|certutil(?:\.exe)?|bitsadmin(?:\.exe)?|vssadmin(?:\.exe)?|schtasks(?:\.exe)?|regsvr32(?:\.exe)?|rundll32(?:\.exe)?|mshta(?:\.exe)?|wmic(?:\.exe)?|bcdedit(?:\.exe)?|wbadmin(?:\.exe)?|icacls(?:\.exe)?|nltest(?:\.exe)?| Mimikatz|Invoke-Expression|-enc|-w hidden)\b)",
         std::regex::optimize | std::regex::icase
+    );
+    static const std::regex wallet_regex(
+        R"(\b(bc1[a-zA-HJ-NP-Z0-9]{25,39}|[13][a-km-zA-HJ-NP-Z1-9]{25,34}|4[0-9AB][1-9A-HJ-NP-Za-km-z]{93})\b)",
+        std::regex::optimize
     );
 
     std::smatch match;
+    if (std::regex_search(str, match, pipe_regex)) {
+        result.artifacts.push_back({StringCategory::NamedPipe, match.str(), offset});
+        return;
+    }
     if (std::regex_search(str, match, url_regex)) {
         result.artifacts.push_back({StringCategory::Url, match.str(), offset});
+        return;
+    }
+    if (std::regex_search(str, match, cmd_regex)) {
+        result.artifacts.push_back({StringCategory::SuspiciousCommand, match.str(), offset});
+        return;
+    }
+    if (std::regex_search(str, match, wallet_regex)) {
+        result.artifacts.push_back({StringCategory::CryptoWallet, match.str(), offset});
         return;
     }
     if (std::regex_search(str, match, ip_regex)) {
@@ -51,10 +72,6 @@ void StringsAnalyzer::classify_string(const std::string& str, uint32_t offset, S
     }
     if (std::regex_search(str, match, reg_regex)) {
         result.artifacts.push_back({StringCategory::RegistryKey, match.str(), offset});
-        return;
-    }
-    if (std::regex_search(str, match, cmd_regex)) {
-        result.artifacts.push_back({StringCategory::SuspiciousCommand, match.str(), offset});
         return;
     }
     if (std::regex_search(str, match, path_regex)) {

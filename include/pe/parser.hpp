@@ -28,11 +28,19 @@ public:
     
     [[nodiscard]] uint64_t image_base() const noexcept { return image_base_; }
     [[nodiscard]] uint32_t entry_point_rva() const noexcept { return entry_point_rva_; }
+    [[nodiscard]] uint32_t timestamp() const noexcept { return timestamp_; }
+    [[nodiscard]] uint16_t dll_characteristics() const noexcept { return dll_characteristics_; }
     [[nodiscard]] const std::vector<SectionInfo>& sections() const noexcept { return sections_; }
     [[nodiscard]] std::span<const uint8_t> raw_buffer() const noexcept { return buffer_; }
     
+    [[nodiscard]] const DataDirectory& export_directory() const noexcept { 
+        return data_directories_[DIRECTORY_ENTRY_EXPORT]; 
+    }
     [[nodiscard]] const DataDirectory& import_directory() const noexcept { 
         return data_directories_[DIRECTORY_ENTRY_IMPORT]; 
+    }
+    [[nodiscard]] const DataDirectory& security_directory() const noexcept { 
+        return data_directories_[DIRECTORY_ENTRY_SECURITY]; 
     }
     [[nodiscard]] const DataDirectory& tls_directory() const noexcept { 
         return data_directories_[DIRECTORY_ENTRY_TLS]; 
@@ -73,6 +81,8 @@ private:
 
     uint64_t image_base_ = 0;
     uint32_t entry_point_rva_ = 0;
+    uint32_t timestamp_ = 0;
+    uint16_t dll_characteristics_ = 0;
     DataDirectory data_directories_[16]{};
     std::vector<SectionInfo> sections_;
 };

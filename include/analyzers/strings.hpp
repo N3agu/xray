@@ -10,7 +10,9 @@ enum class StringCategory {
     IpAddress,
     RegistryKey,
     FilePath,
-    SuspiciousCommand
+    SuspiciousCommand,
+    NamedPipe,
+    CryptoWallet
 };
 
 struct ExtractedArtifact {

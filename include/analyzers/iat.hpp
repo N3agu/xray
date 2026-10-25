@@ -12,7 +12,10 @@ enum class ApiCategory {
     DynamicLoading,
     MemoryManipulation,
     ProcessCreation,
-    SystemDiscovery
+    SystemDiscovery,
+    NetworkC2,
+    Cryptography,
+    SpywareKeylogging
 };
 
 struct SuspiciousApi {

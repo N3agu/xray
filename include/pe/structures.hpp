@@ -8,12 +8,19 @@ constexpr uint32_t NT_SIGNATURE  = 0x00004550;  // "PE\0\0"
 constexpr uint16_t OPT_HDR32_MAGIC = 0x10B;
 constexpr uint16_t OPT_HDR64_MAGIC = 0x20B;
 
-constexpr size_t DIRECTORY_ENTRY_IMPORT = 1;
-constexpr size_t DIRECTORY_ENTRY_TLS    = 9;
+constexpr size_t DIRECTORY_ENTRY_EXPORT   = 0;
+constexpr size_t DIRECTORY_ENTRY_IMPORT   = 1;
+constexpr size_t DIRECTORY_ENTRY_SECURITY = 4;
+constexpr size_t DIRECTORY_ENTRY_TLS      = 9;
 
 constexpr uint32_t SCN_MEM_EXECUTE = 0x20000000;
 constexpr uint32_t SCN_MEM_READ    = 0x40000000;
 constexpr uint32_t SCN_MEM_WRITE   = 0x80000000;
+
+constexpr uint16_t DLL_CHAR_DYNAMIC_BASE = 0x0040;
+constexpr uint16_t DLL_CHAR_NX_COMPAT    = 0x0100;
+constexpr uint16_t DLL_CHAR_NO_SEH       = 0x0400;
+constexpr uint16_t DLL_CHAR_GUARD_CF     = 0x4000;
 
 #pragma pack(push, 1)
 
@@ -148,6 +155,20 @@ struct ImageImportDescriptor {
 struct ImageImportByName {
     uint16_t hint;
     char name[1];
+};
+
+struct ImageExportDirectory {
+    uint32_t characteristics;
+    uint32_t time_date_stamp;
+    uint16_t major_version;
+    uint16_t minor_version;
+    uint32_t name;
+    uint32_t base;
+    uint32_t number_of_functions;
+    uint32_t number_of_names;
+    uint32_t address_of_functions;
+    uint32_t address_of_names;
+    uint32_t address_of_name_ordinals;
 };
 
 struct ImageTlsDirectory32 {

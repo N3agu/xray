@@ -34,6 +34,8 @@ bool PeParser::parse() {
         return false;
     }
 
+    timestamp_ = file_hdr->time_date_stamp;
+
     size_t opt_hdr_offset = file_hdr_offset + sizeof(FileHeader);
     const auto* magic = read_struct<uint16_t>(opt_hdr_offset);
     if (!magic) {
@@ -50,6 +52,7 @@ bool PeParser::parse() {
         }
         image_base_ = opt64->image_base;
         entry_point_rva_ = opt64->address_of_entry_point;
+        dll_characteristics_ = opt64->dll_characteristics;
         std::memcpy(data_directories_, opt64->data_directory, sizeof(data_directories_));
     } else if (*magic == OPT_HDR32_MAGIC) {
         is_64bit_ = false;
@@ -60,6 +63,7 @@ bool PeParser::parse() {
         }
         image_base_ = opt32->image_base;
         entry_point_rva_ = opt32->address_of_entry_point;
+        dll_characteristics_ = opt32->dll_characteristics;
         std::memcpy(data_directories_, opt32->data_directory, sizeof(data_directories_));
     } else {
         error_ = "Unknown Optional Header magic value.";

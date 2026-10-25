@@ -73,6 +73,8 @@ void Reporter::render_text(
     std::ostream& out,
     std::string_view banner
 ) {
+    const auto& sa = report.structural_anomalies;
+
     if (!options.silent) {
         out << banner << "\n";
         out << "Static Binary Triage:\n";
@@ -80,7 +82,13 @@ void Reporter::render_text(
         out << "Size:         " << report.file_size << " bytes\n";
         out << "Architecture: " << (report.is_64bit ? "x64 (PE32+)" : "x86 (PE32)") << "\n";
         out << "Image Base:   0x" << std::hex << report.image_base << "\n";
-        out << "Entry Point:  0x" << std::hex << report.entry_point_rva << std::dec << "\n\n";
+        out << "Entry Point:  0x" << std::hex << report.entry_point_rva << std::dec
+            << " (" << (sa.ep_section_name.empty() ? "Unknown" : sa.ep_section_name) << ")\n";
+        out << "Mitigations:  "
+            << "ASLR=" << (sa.aslr_enabled ? "ON " : "OFF ")
+            << "DEP=" << (sa.dep_enabled ? "ON " : "OFF ")
+            << "CFG=" << (sa.cfg_enabled ? "ON " : "OFF ")
+            << "Signed=" << (sa.is_signed ? "YES" : "NO") << "\n\n";
     }
 
     if (options.run_sections) {
@@ -94,7 +102,7 @@ void Reporter::render_text(
             << std::setw(6)  << "Perms" << "\n";
         out << std::string(72, '-') << "\n";
 
-        for (size_t i = 0; i < report.raw_sections.size(); ++i) {
+        for (size_t i = 0; i < report.raw_sections.size() && i < report.sections.size(); ++i) {
             const auto& sec = report.raw_sections[i];
             const auto& analysis = report.sections[i];
 
@@ -125,7 +133,25 @@ void Reporter::render_text(
     }
 
     if (options.run_anomalies) {
-        const auto& sa = report.structural_anomalies;
+        if (sa.ep_outside_text || sa.ep_in_last_section || sa.timestamp_anomaly || !sa.non_standard_sections.empty()) {
+            out << "\nStructural & Header Anomalies:\n";
+            if (sa.ep_outside_text) {
+                out << "  [WARNING] Entry Point resides outside standard .text section (" << sa.ep_section_name << ")\n";
+            }
+            if (sa.ep_in_last_section) {
+                out << "  [WARNING] Entry Point resides in the final section (" << sa.ep_section_name << ")\n";
+            }
+            if (sa.timestamp_anomaly) {
+                out << "  [WARNING] " << sa.timestamp_note << "\n";
+            }
+            if (!sa.non_standard_sections.empty()) {
+                out << "  [INFO]    Non-standard section names: ";
+                for (size_t i = 0; i < sa.non_standard_sections.size(); ++i) {
+                    out << sa.non_standard_sections[i] << (i + 1 < sa.non_standard_sections.size() ? ", " : "\n");
+                }
+            }
+        }
+
         if (sa.overlay.present) {
             out << "\nOverlay Detected:\n";
             out << "  Offset:  0x" << std::hex << sa.overlay.offset << std::dec << "\n";
@@ -146,6 +172,16 @@ void Reporter::render_text(
                     << "0x" << std::hex << std::setw(18) << cb.va
                     << "0x" << std::setw(12) << cb.rva
                     << "0x" << cb.file_offset << std::dec << "\n";
+            }
+        }
+
+        if (!sa.exports.exported_functions.empty()) {
+            out << "\nExports Summary (" << (sa.exports.dll_name.empty() ? "Unnamed" : sa.exports.dll_name) << "):\n";
+            out << "  Total Exported Functions: " << sa.exports.exported_functions.size() << "\n";
+            if (!sa.exports.suspicious_exports.empty()) {
+                for (const auto& sexp : sa.exports.suspicious_exports) {
+                    out << "  [CRITICAL] Suspicious Loader Export: " << sexp << "\n";
+                }
             }
         }
     }
@@ -194,22 +230,26 @@ void Reporter::render_text(
     }
 
     if (options.run_syscalls && !report.syscalls.empty()) {
-        out << "\nEvasive Syscall Stubs Detected:\n";
+        out << "\nLow-Level Code & Syscall Stubs Detected:\n";
         out << std::left
-            << std::setw(20) << "Type"
+            << std::setw(22) << "Type"
             << std::setw(10) << "Section"
             << std::setw(12) << "RVA"
             << std::setw(12) << "FileOffset"
             << "SSN\n";
-        out << std::string(62, '-') << "\n";
+        out << std::string(64, '-') << "\n";
 
         for (const auto& sc : report.syscalls) {
             out << std::left
-                << std::setw(20) << analyzers::SyscallAnalyzer::type_to_string(sc.type)
+                << std::setw(22) << analyzers::SyscallAnalyzer::type_to_string(sc.type)
                 << std::setw(10) << sc.section_name
                 << "0x" << std::hex << std::setw(10) << sc.rva
-                << "0x" << std::setw(10) << sc.file_offset
-                << "0x" << sc.ssn << std::dec << "\n";
+                << "0x" << std::setw(10) << sc.file_offset;
+            if (sc.type == analyzers::SyscallType::Direct || sc.type == analyzers::SyscallType::Indirect) {
+                out << "0x" << sc.ssn << std::dec << "\n";
+            } else {
+                out << std::dec << "-\n";
+            }
         }
     }
 
@@ -238,15 +278,15 @@ void Reporter::render_text(
         out << "\nDeobfuscated Strings Recovered:\n";
         out << std::left
             << std::setw(12) << "Offset"
-            << std::setw(16) << "Method"
+            << std::setw(18) << "Method"
             << std::setw(10) << "Key"
             << "Decoded Value\n";
-        out << std::string(72, '-') << "\n";
+        out << std::string(74, '-') << "\n";
 
         for (const auto& item : report.deobfuscated.findings) {
             out << std::left
                 << "0x" << std::hex << std::setw(10) << item.offset
-                << std::setw(16) << analyzers::Deobfuscator::type_to_string(item.type);
+                << std::setw(18) << analyzers::Deobfuscator::type_to_string(item.type);
             if (item.type == analyzers::DeobfuscationType::Base64) {
                 out << std::setw(10) << "-";
             } else {
@@ -278,13 +318,19 @@ void Reporter::render_text(
 }
 
 void Reporter::render_json(const core::TriageReport& report, const core::ScanOptions&, std::ostream& out) {
+    const auto& sa = report.structural_anomalies;
     out << "{\n";
     out << "  \"file\": {\n";
     out << "    \"name\": \"" << escape_json(report.filename) << "\",\n";
     out << "    \"size\": " << report.file_size << ",\n";
     out << "    \"is_64bit\": " << (report.is_64bit ? "true" : "false") << ",\n";
     out << "    \"image_base\": " << report.image_base << ",\n";
-    out << "    \"entry_point_rva\": " << report.entry_point_rva << "\n";
+    out << "    \"entry_point_rva\": " << report.entry_point_rva << ",\n";
+    out << "    \"entry_point_section\": \"" << escape_json(sa.ep_section_name) << "\",\n";
+    out << "    \"aslr\": " << (sa.aslr_enabled ? "true" : "false") << ",\n";
+    out << "    \"dep\": " << (sa.dep_enabled ? "true" : "false") << ",\n";
+    out << "    \"cfg\": " << (sa.cfg_enabled ? "true" : "false") << ",\n";
+    out << "    \"signed\": " << (sa.is_signed ? "true" : "false") << "\n";
     out << "  },\n";
 
     out << "  \"risk\": {\n";
@@ -303,34 +349,34 @@ void Reporter::render_json(const core::TriageReport& report, const core::ScanOpt
     out << "  },\n";
 
     out << "  \"overlay\": {\n";
-    out << "    \"present\": " << (report.structural_anomalies.overlay.present ? "true" : "false") << ",\n";
-    out << "    \"offset\": " << report.structural_anomalies.overlay.offset << ",\n";
-    out << "    \"size\": " << report.structural_anomalies.overlay.size << ",\n";
-    out << "    \"entropy\": " << std::fixed << std::setprecision(2) << report.structural_anomalies.overlay.entropy << "\n";
+    out << "    \"present\": " << (sa.overlay.present ? "true" : "false") << ",\n";
+    out << "    \"offset\": " << sa.overlay.offset << ",\n";
+    out << "    \"size\": " << sa.overlay.size << ",\n";
+    out << "    \"entropy\": " << std::fixed << std::setprecision(2) << sa.overlay.entropy << "\n";
     out << "  },\n";
 
     out << "  \"tls_callbacks\": [\n";
-    for (size_t i = 0; i < report.structural_anomalies.tls_callbacks.size(); ++i) {
-        const auto& cb = report.structural_anomalies.tls_callbacks[i];
+    for (size_t i = 0; i < sa.tls_callbacks.size(); ++i) {
+        const auto& cb = sa.tls_callbacks[i];
         out << "    {\n";
         out << "      \"va\": " << cb.va << ",\n";
         out << "      \"rva\": " << cb.rva << ",\n";
         out << "      \"file_offset\": " << cb.file_offset << "\n";
-        out << "    }" << (i + 1 < report.structural_anomalies.tls_callbacks.size() ? "," : "") << "\n";
+        out << "    }" << (i + 1 < sa.tls_callbacks.size() ? "," : "") << "\n";
     }
     out << "  ],\n";
 
     out << "  \"sections\": [\n";
     for (size_t i = 0; i < report.raw_sections.size() && i < report.sections.size(); ++i) {
         const auto& sec = report.raw_sections[i];
-        const auto& sa = report.sections[i];
+        const auto& sec_an = report.sections[i];
         out << "    {\n";
         out << "      \"name\": \"" << escape_json(sec.name) << "\",\n";
         out << "      \"virtual_address\": " << sec.virtual_address << ",\n";
         out << "      \"virtual_size\": " << sec.virtual_size << ",\n";
         out << "      \"raw_offset\": " << sec.raw_offset << ",\n";
         out << "      \"raw_size\": " << sec.raw_size << ",\n";
-        out << "      \"entropy\": " << sa.entropy << ",\n";
+        out << "      \"entropy\": " << sec_an.entropy << ",\n";
         out << "      \"permissions\": \"" << format_permissions(sec.characteristics) << "\"\n";
         out << "    }" << (i + 1 < report.sections.size() ? "," : "") << "\n";
     }
@@ -415,7 +461,7 @@ void Reporter::render_csv(const core::TriageReport& report, const core::ScanOpti
     }
 
     for (const auto& sc : report.syscalls) {
-        out << "Syscall," << escape_csv(analyzers::SyscallAnalyzer::type_to_string(sc.type)) << ",0x" << std::hex << sc.rva << std::dec << ","
+        out << "Syscall_Or_Assembly," << escape_csv(analyzers::SyscallAnalyzer::type_to_string(sc.type)) << ",0x" << std::hex << sc.rva << std::dec << ","
             << escape_csv("SSN=" + std::to_string(sc.ssn) + " Section=" + sc.section_name) << "\n";
     }
 
@@ -433,4 +479,4 @@ void Reporter::render_csv(const core::TriageReport& report, const core::ScanOpti
         << "," << report.risk.total_score << "," << escape_csv("Normalized 0-100 Score") << "\n";
 }
 
-}
+} // namespace xray::output

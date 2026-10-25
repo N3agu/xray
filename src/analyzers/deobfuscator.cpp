@@ -10,21 +10,26 @@ static const std::vector<std::string> KNOWN_CRIBS = {
     "https://",
     "powershell",
     "cmd.exe",
+    "ntdll.dll",
+    "kernel32",
     "VirtualAlloc",
     "VirtualProtect",
     "LoadLibrary",
     "GetProcAddress",
     "CreateProcess",
-    "WinExec",
+    "AmsiScanBuffer",
+    "EtwEventWrite",
+    "\\\\.\\pipe\\",
     "WScript.Shell",
-    "RegOpenKey"
+    "Software\\Microsoft\\Windows\\CurrentVersion\\Run"
 };
 
 std::string Deobfuscator::type_to_string(DeobfuscationType type) {
     switch (type) {
-        case DeobfuscationType::Base64:   return "Base64";
-        case DeobfuscationType::Xor1Byte: return "XOR (1-Byte)";
-        case DeobfuscationType::Xor2Byte: return "XOR (2-Byte)";
+        case DeobfuscationType::Base64:       return "Base64";
+        case DeobfuscationType::Xor1Byte:     return "XOR (1-Byte)";
+        case DeobfuscationType::Xor2Byte:     return "XOR (2-Byte)";
+        case DeobfuscationType::XorWide1Byte: return "XOR-Wide (UTF16)";
     }
     return "Unknown";
 }
@@ -105,6 +110,52 @@ void Deobfuscator::scan_xor_1byte(std::span<const uint8_t> buffer, Deobfuscation
                 }
 
                 it = std::search(it + enc_crib.size(), buffer.end(), enc_crib.begin(), enc_crib.end());
+            }
+        }
+    }
+}
+
+void Deobfuscator::scan_xor_wide_1byte(std::span<const uint8_t> buffer, DeobfuscationResult& result) {
+    if (buffer.size() < 16) return;
+
+    for (uint32_t k = 1; k <= 0xFF; ++k) {
+        uint8_t key = static_cast<uint8_t>(k);
+
+        for (const auto& crib : KNOWN_CRIBS) {
+            size_t wide_len = crib.size() * 2;
+            if (wide_len > buffer.size()) continue;
+
+            std::vector<uint8_t> enc_wide(wide_len);
+            for (size_t i = 0; i < crib.size(); ++i) {
+                enc_wide[i * 2]     = static_cast<uint8_t>(crib[i]) ^ key;
+                enc_wide[i * 2 + 1] = 0x00 ^ key;
+            }
+
+            auto it = std::search(buffer.begin(), buffer.end(), enc_wide.begin(), enc_wide.end());
+            while (it != buffer.end()) {
+                size_t offset = std::distance(buffer.begin(), it);
+                std::string decoded;
+                for (size_t pos = offset; pos + 1 < buffer.size(); pos += 2) {
+                    uint8_t lo = buffer[pos] ^ key;
+                    uint8_t hi = buffer[pos + 1] ^ key;
+                    if (hi == 0x00 && lo >= 0x20 && lo <= 0x7E) {
+                        decoded.push_back(static_cast<char>(lo));
+                    } else {
+                        break;
+                    }
+                }
+
+                if (decoded.size() >= crib.size()) {
+                    result.findings.push_back({
+                        .type = DeobfuscationType::XorWide1Byte,
+                        .offset = static_cast<uint32_t>(offset),
+                        .key = key,
+                        .matched_crib = crib,
+                        .decoded_value = decoded
+                    });
+                }
+
+                it = std::search(it + enc_wide.size(), buffer.end(), enc_wide.begin(), enc_wide.end());
             }
         }
     }
@@ -229,6 +280,7 @@ DeobfuscationResult Deobfuscator::analyze(const pe::PeParser& parser) {
     auto buffer = parser.raw_buffer();
 
     scan_xor_1byte(buffer, result);
+    scan_xor_wide_1byte(buffer, result);
     scan_xor_2byte(buffer, result);
     scan_base64(buffer, result);
 
