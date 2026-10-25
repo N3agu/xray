@@ -1,5 +1,6 @@
 #include "core/mapped_file.hpp"
 #include "pe/parser.hpp"
+#include "analyzers/entropy.hpp"
 #include <iomanip>
 #include <iostream>
 #include <string_view>
@@ -72,6 +73,8 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
+    auto section_analyses = xray::analyzers::SectionAnalyzer::analyze(parser);
+
     if (!silent) {
         std::cout << BANNER << "\n";
         std::cout << "Static Binary Triage:\n";
@@ -88,17 +91,37 @@ int main(int argc, char* argv[]) {
               << std::setw(12) << "VirtSize"
               << std::setw(12) << "RawAddr"
               << std::setw(12) << "RawSize"
+              << std::setw(8)  << "Entropy"
               << std::setw(6)  << "Perms" << "\n";
-    std::cout << std::string(64, '-') << "\n";
+    std::cout << std::string(72, '-') << "\n";
 
-    for (const auto& sec : parser.sections()) {
+    for (size_t i = 0; i < parser.sections().size(); ++i) {
+        const auto& sec = parser.sections()[i];
+        const auto& analysis = section_analyses[i];
+
         std::cout << std::left << std::setw(10) << sec.name
                   << "0x" << std::hex << std::setw(10) << sec.virtual_address
                   << "0x" << std::setw(10) << sec.virtual_size
                   << "0x" << std::setw(10) << sec.raw_offset
                   << "0x" << std::setw(10) << sec.raw_size
-                  << std::dec << std::setw(6) << format_permissions(sec.characteristics)
+                  << std::dec << std::fixed << std::setprecision(2) << std::setw(8) << analysis.entropy
+                  << std::setw(6) << format_permissions(sec.characteristics)
                   << "\n";
+    }
+
+    std::vector<xray::analyzers::SectionAnomaly> all_anomalies;
+    for (const auto& analysis : section_analyses) {
+        for (const auto& anomaly : analysis.anomalies) {
+            all_anomalies.push_back(anomaly);
+        }
+    }
+
+    if (!all_anomalies.empty()) {
+        std::cout << "\nSection Anomalies:\n";
+        for (const auto& anomaly : all_anomalies) {
+            std::cout << "  [" << (anomaly.is_critical ? "CRITICAL" : "WARNING") << "] "
+                      << anomaly.section_name << ": " << anomaly.description << "\n";
+        }
     }
 
     return 0;
