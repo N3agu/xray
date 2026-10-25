@@ -3,6 +3,7 @@
 #include "analyzers/entropy.hpp"
 #include "analyzers/iat.hpp"
 #include "analyzers/syscalls.hpp"
+#include "analyzers/strings.hpp"
 #include <algorithm>
 #include <iomanip>
 #include <iostream>
@@ -79,6 +80,7 @@ int main(int argc, char* argv[]) {
     auto section_analyses = xray::analyzers::SectionAnalyzer::analyze(parser);
     auto iat_analysis = xray::analyzers::IatAnalyzer::analyze(parser);
     auto syscall_findings = xray::analyzers::SyscallAnalyzer::analyze(parser);
+    auto strings_analysis = xray::analyzers::StringsAnalyzer::analyze(parser);
 
     if (!silent) {
         std::cout << BANNER << "\n";
@@ -186,6 +188,25 @@ int main(int argc, char* argv[]) {
                       << "0x" << std::hex << std::setw(10) << sc.rva
                       << "0x" << std::setw(10) << sc.file_offset
                       << "0x" << sc.ssn << std::dec << "\n";
+        }
+    }
+
+    std::cout << "\nStrings Summary:\n";
+    std::cout << "  Total Extracted: " << strings_analysis.total_strings_found << "\n";
+
+    if (!strings_analysis.artifacts.empty()) {
+        std::cout << "\nHigh-Signal Artifacts Detected:\n";
+        std::cout << std::left
+                  << std::setw(12) << "Offset"
+                  << std::setw(22) << "Category"
+                  << "Value\n";
+        std::cout << std::string(72, '-') << "\n";
+
+        for (const auto& artifact : strings_analysis.artifacts) {
+            std::cout << std::left
+                      << "0x" << std::hex << std::setw(10) << artifact.offset << std::dec
+                      << std::setw(22) << xray::analyzers::StringsAnalyzer::category_to_string(artifact.category)
+                      << artifact.value << "\n";
         }
     }
 
