@@ -5,9 +5,11 @@
 #include "analyzers/syscalls.hpp"
 #include "analyzers/strings.hpp"
 #include "analyzers/deobfuscator.hpp"
+#include "scoring/engine.hpp"
 #include <algorithm>
 #include <iomanip>
 #include <iostream>
+#include <sstream>
 #include <string_view>
 #include <vector>
 
@@ -24,7 +26,8 @@ void show_help(std::string_view program_name) {
     std::cout << "Usage: " << program_name << " [options] <path_to_pe_binary>\n\n";
     std::cout << "Options:\n";
     std::cout << "  -h, --help     Show this help message and exit\n";
-    std::cout << "  -s, --silent   Suppress the banner and non-essential output\n\n";
+    std::cout << "  -s, --silent   Suppress the banner and non-essential output\n";
+    std::cout << "  -j, --json     Emit results in JSON format\n\n";
 }
 
 std::string format_permissions(uint32_t chars) {
@@ -35,6 +38,129 @@ std::string format_permissions(uint32_t chars) {
     return perms;
 }
 
+std::string escape_json(std::string_view s) {
+    std::ostringstream o;
+    for (char c : s) {
+        switch (c) {
+            case '"':  o << "\\\""; break;
+            case '\\': o << "\\\\"; break;
+            case '\b': o << "\\b";  break;
+            case '\f': o << "\\f";  break;
+            case '\n': o << "\\n";  break;
+            case '\r': o << "\\r";  break;
+            case '\t': o << "\\t";  break;
+            default:
+                if (static_cast<unsigned char>(c) <= 0x1f) {
+                    o << "\\u" << std::hex << std::setw(4) << std::setfill('0') << static_cast<int>(c) << std::dec << std::setfill(' ');
+                } else {
+                    o << c;
+                }
+        }
+    }
+    return o.str();
+}
+
+void emit_json(
+    const std::filesystem::path& target_path,
+    size_t file_size,
+    const xray::pe::PeParser& parser,
+    const std::vector<xray::analyzers::SectionAnalysis>& section_analyses,
+    const xray::analyzers::IatAnalysisResult& iat_analysis,
+    const std::vector<xray::analyzers::SyscallStub>& syscall_findings,
+    const xray::analyzers::StringsAnalysisResult& strings_analysis,
+    const xray::analyzers::DeobfuscationResult& deobfuscated,
+    const xray::scoring::RiskReport& risk
+) {
+    std::cout << "{\n";
+    std::cout << "  \"file\": {\n";
+    std::cout << "    \"name\": \"" << escape_json(target_path.filename().string()) << "\",\n";
+    std::cout << "    \"size\": " << file_size << ",\n";
+    std::cout << "    \"is_64bit\": " << (parser.is_64bit() ? "true" : "false") << ",\n";
+    std::cout << "    \"image_base\": " << parser.image_base() << ",\n";
+    std::cout << "    \"entry_point_rva\": " << parser.entry_point_rva() << "\n";
+    std::cout << "  },\n";
+
+    std::cout << "  \"risk\": {\n";
+    std::cout << "    \"score\": " << risk.total_score << ",\n";
+    std::cout << "    \"level\": \"" << xray::scoring::RiskEngine::level_to_string(risk.level) << "\",\n";
+    std::cout << "    \"triggered_rules\": [\n";
+    for (size_t i = 0; i < risk.triggered_rules.size(); ++i) {
+        const auto& r = risk.triggered_rules[i];
+        std::cout << "      {\n";
+        std::cout << "        \"rule\": \"" << escape_json(r.rule_name) << "\",\n";
+        std::cout << "        \"points\": " << r.points << ",\n";
+        std::cout << "        \"reason\": \"" << escape_json(r.reason) << "\"\n";
+        std::cout << "      }" << (i + 1 < risk.triggered_rules.size() ? "," : "") << "\n";
+    }
+    std::cout << "    ]\n";
+    std::cout << "  },\n";
+
+    std::cout << "  \"sections\": [\n";
+    for (size_t i = 0; i < parser.sections().size(); ++i) {
+        const auto& sec = parser.sections()[i];
+        const auto& sa = section_analyses[i];
+        std::cout << "    {\n";
+        std::cout << "      \"name\": \"" << escape_json(sec.name) << "\",\n";
+        std::cout << "      \"virtual_address\": " << sec.virtual_address << ",\n";
+        std::cout << "      \"virtual_size\": " << sec.virtual_size << ",\n";
+        std::cout << "      \"raw_offset\": " << sec.raw_offset << ",\n";
+        std::cout << "      \"raw_size\": " << sec.raw_size << ",\n";
+        std::cout << "      \"entropy\": " << sa.entropy << ",\n";
+        std::cout << "      \"permissions\": \"" << format_permissions(sec.characteristics) << "\"\n";
+        std::cout << "    }" << (i + 1 < parser.sections().size() ? "," : "") << "\n";
+    }
+    std::cout << "  ],\n";
+
+    std::cout << "  \"flagged_apis\": [\n";
+    for (size_t i = 0; i < iat_analysis.suspicious_apis.size(); ++i) {
+        const auto& api = iat_analysis.suspicious_apis[i];
+        std::cout << "    {\n";
+        std::cout << "      \"function\": \"" << escape_json(api.name) << "\",\n";
+        std::cout << "      \"module\": \"" << escape_json(api.module_name) << "\",\n";
+        std::cout << "      \"category\": \"" << escape_json(xray::analyzers::IatAnalyzer::category_to_string(api.category)) << "\",\n";
+        std::cout << "      \"summary\": \"" << escape_json(api.threat_summary) << "\"\n";
+        std::cout << "    }" << (i + 1 < iat_analysis.suspicious_apis.size() ? "," : "") << "\n";
+    }
+    std::cout << "  ],\n";
+
+    std::cout << "  \"syscalls\": [\n";
+    for (size_t i = 0; i < syscall_findings.size(); ++i) {
+        const auto& sc = syscall_findings[i];
+        std::cout << "    {\n";
+        std::cout << "      \"type\": \"" << escape_json(xray::analyzers::SyscallAnalyzer::type_to_string(sc.type)) << "\",\n";
+        std::cout << "      \"section\": \"" << escape_json(sc.section_name) << "\",\n";
+        std::cout << "      \"rva\": " << sc.rva << ",\n";
+        std::cout << "      \"file_offset\": " << sc.file_offset << ",\n";
+        std::cout << "      \"ssn\": " << sc.ssn << "\n";
+        std::cout << "    }" << (i + 1 < syscall_findings.size() ? "," : "") << "\n";
+    }
+    std::cout << "  ],\n";
+
+    std::cout << "  \"artifacts\": [\n";
+    for (size_t i = 0; i < strings_analysis.artifacts.size(); ++i) {
+        const auto& art = strings_analysis.artifacts[i];
+        std::cout << "    {\n";
+        std::cout << "      \"offset\": " << art.offset << ",\n";
+        std::cout << "      \"category\": \"" << escape_json(xray::analyzers::StringsAnalyzer::category_to_string(art.category)) << "\",\n";
+        std::cout << "      \"value\": \"" << escape_json(art.value) << "\"\n";
+        std::cout << "    }" << (i + 1 < strings_analysis.artifacts.size() ? "," : "") << "\n";
+    }
+    std::cout << "  ],\n";
+
+    std::cout << "  \"deobfuscated\": [\n";
+    for (size_t i = 0; i < deobfuscated.findings.size(); ++i) {
+        const auto& item = deobfuscated.findings[i];
+        std::cout << "    {\n";
+        std::cout << "      \"offset\": " << item.offset << ",\n";
+        std::cout << "      \"method\": \"" << escape_json(xray::analyzers::Deobfuscator::type_to_string(item.type)) << "\",\n";
+        std::cout << "      \"key\": " << item.key << ",\n";
+        std::cout << "      \"decoded_value\": \"" << escape_json(item.decoded_value) << "\"\n";
+        std::cout << "    }" << (i + 1 < deobfuscated.findings.size() ? "," : "") << "\n";
+    }
+    std::cout << "  ]\n";
+    std::cout << "}\n";
+}
+
 int main(int argc, char* argv[]) {
     if (argc < 2) {
         show_help(argv[0]);
@@ -42,6 +168,7 @@ int main(int argc, char* argv[]) {
     }
 
     bool silent = false;
+    bool json_mode = false;
     std::filesystem::path target_path;
 
     for (int i = 1; i < argc; ++i) {
@@ -51,6 +178,8 @@ int main(int argc, char* argv[]) {
             return 0;
         } else if (arg == "-s" || arg == "--silent") {
             silent = true;
+        } else if (arg == "-j" || arg == "--json") {
+            json_mode = true;
         } else if (arg.starts_with("-")) {
             std::cerr << "Unknown option: " << arg << "\n";
             show_help(argv[0]);
@@ -83,6 +212,19 @@ int main(int argc, char* argv[]) {
     auto syscall_findings = xray::analyzers::SyscallAnalyzer::analyze(parser);
     auto strings_analysis = xray::analyzers::StringsAnalyzer::analyze(parser);
     auto deobfuscated = xray::analyzers::Deobfuscator::analyze(parser);
+
+    auto risk = xray::scoring::RiskEngine::evaluate(
+        section_analyses,
+        iat_analysis,
+        syscall_findings,
+        strings_analysis,
+        deobfuscated
+    );
+
+    if (json_mode) {
+        emit_json(target_path, file.size(), parser, section_analyses, iat_analysis, syscall_findings, strings_analysis, deobfuscated, risk);
+        return 0;
+    }
 
     if (!silent) {
         std::cout << BANNER << "\n";
@@ -231,6 +373,26 @@ int main(int argc, char* argv[]) {
                 std::cout << "0x" << std::hex << std::setw(8) << item.key;
             }
             std::cout << std::dec << item.decoded_value << "\n";
+        }
+    }
+
+    std::cout << "\nRisk Evaluation:\n";
+    std::cout << "  Score: " << risk.total_score << " / 100\n";
+    std::cout << "  Level: " << xray::scoring::RiskEngine::level_to_string(risk.level) << "\n";
+
+    if (!risk.triggered_rules.empty()) {
+        std::cout << "\nTriggered Threat Indicators:\n";
+        std::cout << std::left
+                  << std::setw(32) << "Rule"
+                  << std::setw(10) << "Points"
+                  << "Reason\n";
+        std::cout << std::string(76, '-') << "\n";
+
+        for (const auto& r : risk.triggered_rules) {
+            std::cout << std::left
+                      << std::setw(32) << r.rule_name
+                      << std::setw(10) << ("+" + std::to_string(r.points))
+                      << r.reason << "\n";
         }
     }
 
