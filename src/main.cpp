@@ -1,0 +1,105 @@
+#include "core/mapped_file.hpp"
+#include "pe/parser.hpp"
+#include <iomanip>
+#include <iostream>
+#include <string_view>
+#include <vector>
+
+const char* BANNER = R"(__  ___ __ __ _ _   _ 
+\ \/ / '__/ _` | | | |
+ >  <| | | (_| | |_| |
+/_/\_\_|  \__,_|\__, |
+                |___/ 
+github.com/N3agu/xray
+)";
+
+void show_help(std::string_view program_name) {
+    std::cout << BANNER << "\n";
+    std::cout << "Usage: " << program_name << " [options] <path_to_pe_binary>\n\n";
+    std::cout << "Options:\n";
+    std::cout << "  -h, --help     Show this help message and exit\n";
+    std::cout << "  -s, --silent   Suppress the banner and non-essential output\n\n";
+}
+
+std::string format_permissions(uint32_t chars) {
+    std::string perms;
+    perms += (chars & xray::pe::SCN_MEM_READ)    ? 'R' : '-';
+    perms += (chars & xray::pe::SCN_MEM_WRITE)   ? 'W' : '-';
+    perms += (chars & xray::pe::SCN_MEM_EXECUTE) ? 'X' : '-';
+    return perms;
+}
+
+int main(int argc, char* argv[]) {
+    if (argc < 2) {
+        show_help(argv[0]);
+        return 1;
+    }
+
+    bool silent = false;
+    std::filesystem::path target_path;
+
+    for (int i = 1; i < argc; ++i) {
+        std::string_view arg = argv[i];
+        if (arg == "-h" || arg == "--help") {
+            show_help(argv[0]);
+            return 0;
+        } else if (arg == "-s" || arg == "--silent") {
+            silent = true;
+        } else if (arg.starts_with("-")) {
+            std::cerr << "Unknown option: " << arg << "\n";
+            show_help(argv[0]);
+            return 1;
+        } else {
+            target_path = arg;
+        }
+    }
+
+    if (target_path.empty()) {
+        std::cerr << "Error: No input file specified.\n";
+        show_help(argv[0]);
+        return 1;
+    }
+
+    xray::core::MappedFile file(target_path);
+    if (!file.is_valid()) {
+        std::cerr << "[!] Failed to open or map file: " << target_path << "\n";
+        return 1;
+    }
+
+    xray::pe::PeParser parser(file.span());
+    if (!parser.is_valid()) {
+        std::cerr << "[!] PE Parse Error: " << parser.error_message() << "\n";
+        return 1;
+    }
+
+    if (!silent) {
+        std::cout << BANNER << "\n";
+        std::cout << "Static Binary Triage:\n";
+        std::cout << "File:         " << target_path.filename().string() << "\n";
+        std::cout << "Size:         " << file.size() << " bytes\n";
+        std::cout << "Architecture: " << (parser.is_64bit() ? "x64 (PE32+)" : "x86 (PE32)") << "\n";
+        std::cout << "Image Base:   0x" << std::hex << parser.image_base() << "\n";
+        std::cout << "Entry Point:  0x" << std::hex << parser.entry_point_rva() << std::dec << "\n\n";
+    }
+
+    std::cout << std::left
+              << std::setw(10) << "Name"
+              << std::setw(12) << "VirtAddr"
+              << std::setw(12) << "VirtSize"
+              << std::setw(12) << "RawAddr"
+              << std::setw(12) << "RawSize"
+              << std::setw(6)  << "Perms" << "\n";
+    std::cout << std::string(64, '-') << "\n";
+
+    for (const auto& sec : parser.sections()) {
+        std::cout << std::left << std::setw(10) << sec.name
+                  << "0x" << std::hex << std::setw(10) << sec.virtual_address
+                  << "0x" << std::setw(10) << sec.virtual_size
+                  << "0x" << std::setw(10) << sec.raw_offset
+                  << "0x" << std::setw(10) << sec.raw_size
+                  << std::dec << std::setw(6) << format_permissions(sec.characteristics)
+                  << "\n";
+    }
+
+    return 0;
+}
