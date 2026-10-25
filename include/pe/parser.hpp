@@ -30,6 +30,10 @@ public:
     [[nodiscard]] uint32_t entry_point_rva() const noexcept { return entry_point_rva_; }
     [[nodiscard]] const std::vector<SectionInfo>& sections() const noexcept { return sections_; }
     [[nodiscard]] std::span<const uint8_t> raw_buffer() const noexcept { return buffer_; }
+    [[nodiscard]] const DataDirectory& import_directory() const noexcept { 
+        return data_directories_[DIRECTORY_ENTRY_IMPORT]; 
+    }
+
     [[nodiscard]] std::optional<uint32_t> rva_to_offset(uint32_t rva) const noexcept;
 
     template <typename T>
@@ -38,6 +42,21 @@ public:
             return nullptr;
         }
         return reinterpret_cast<const T*>(buffer_.data() + offset);
+    }
+
+    [[nodiscard]] const char* read_string(size_t offset, size_t max_len = 256) const noexcept {
+        if (offset >= buffer_.size()) {
+            return nullptr;
+        }
+        const char* start = reinterpret_cast<const char*>(buffer_.data() + offset);
+        size_t available = buffer_.size() - offset;
+        size_t search_len = available < max_len ? available : max_len;
+        for (size_t i = 0; i < search_len; ++i) {
+            if (start[i] == '\0') {
+                return start;
+            }
+        }
+        return nullptr;
     }
 
 private:

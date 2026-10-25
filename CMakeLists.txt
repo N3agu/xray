@@ -19,4 +19,5 @@ add_executable(xray
     src/core/mapped_file.cpp
     src/pe/parser.cpp
     src/analyzers/entropy.cpp
+    src/analyzers/iat.cpp
 )

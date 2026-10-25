@@ -8,6 +8,8 @@ constexpr uint32_t NT_SIGNATURE  = 0x00004550;  // "PE\0\0"
 constexpr uint16_t OPT_HDR32_MAGIC = 0x10B;
 constexpr uint16_t OPT_HDR64_MAGIC = 0x20B;
 
+constexpr size_t DIRECTORY_ENTRY_IMPORT = 1;
+
 constexpr uint32_t SCN_MEM_EXECUTE = 0x20000000;
 constexpr uint32_t SCN_MEM_READ    = 0x40000000;
 constexpr uint32_t SCN_MEM_WRITE   = 0x80000000;
@@ -129,6 +131,22 @@ struct SectionHeader {
     uint16_t number_of_relocations;
     uint16_t number_of_linenumbers;
     uint32_t characteristics;
+};
+
+struct ImageImportDescriptor {
+    union {
+        uint32_t characteristics;
+        uint32_t original_first_thunk;
+    };
+    uint32_t time_date_stamp;
+    uint32_t forwarder_chain;
+    uint32_t name;
+    uint32_t first_thunk;
+};
+
+struct ImageImportByName {
+    uint16_t hint;
+    char name[1];
 };
 
 #pragma pack(pop)

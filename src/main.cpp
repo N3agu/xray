@@ -1,6 +1,8 @@
 #include "core/mapped_file.hpp"
 #include "pe/parser.hpp"
 #include "analyzers/entropy.hpp"
+#include "analyzers/iat.hpp"
+#include <algorithm>
 #include <iomanip>
 #include <iostream>
 #include <string_view>
@@ -74,6 +76,7 @@ int main(int argc, char* argv[]) {
     }
 
     auto section_analyses = xray::analyzers::SectionAnalyzer::analyze(parser);
+    auto iat_analysis = xray::analyzers::IatAnalyzer::analyze(parser);
 
     if (!silent) {
         std::cout << BANNER << "\n";
@@ -121,6 +124,46 @@ int main(int argc, char* argv[]) {
         for (const auto& anomaly : all_anomalies) {
             std::cout << "  [" << (anomaly.is_critical ? "CRITICAL" : "WARNING") << "] "
                       << anomaly.section_name << ": " << anomaly.description << "\n";
+        }
+    }
+
+    std::cout << "\nImports Summary:\n";
+    std::cout << "  Total Modules: " << iat_analysis.libraries.size() << "\n";
+    std::cout << "  Total Imports: " << iat_analysis.total_import_count << "\n";
+
+    if (iat_analysis.low_import_count_anomaly) {
+        std::cout << "  [WARNING] Abnormally low import count (< 5) - possible packer or runtime resolution\n";
+    }
+
+    if (!iat_analysis.suspicious_apis.empty()) {
+        size_t max_func_len = 8;
+        size_t max_mod_len = 6;
+        size_t max_cat_len = 8;
+
+        for (const auto& api : iat_analysis.suspicious_apis) {
+            max_func_len = std::max(max_func_len, api.name.length());
+            max_mod_len = std::max(max_mod_len, api.module_name.length());
+            max_cat_len = std::max(max_cat_len, xray::analyzers::IatAnalyzer::category_to_string(api.category).length());
+        }
+
+        max_func_len += 2;
+        max_mod_len += 2;
+        max_cat_len += 2;
+
+        std::cout << "\nTriage Flagged APIs:\n";
+        std::cout << std::left
+                  << std::setw(max_func_len) << "Function"
+                  << std::setw(max_mod_len)  << "Module"
+                  << std::setw(max_cat_len)  << "Category"
+                  << "Summary\n";
+        std::cout << std::string(max_func_len + max_mod_len + max_cat_len + 35, '-') << "\n";
+
+        for (const auto& api : iat_analysis.suspicious_apis) {
+            std::cout << std::left
+                      << std::setw(max_func_len) << api.name
+                      << std::setw(max_mod_len)  << api.module_name
+                      << std::setw(max_cat_len)  << xray::analyzers::IatAnalyzer::category_to_string(api.category)
+                      << api.threat_summary << "\n";
         }
     }
 
