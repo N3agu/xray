@@ -4,6 +4,7 @@
 #include "analyzers/iat.hpp"
 #include "analyzers/syscalls.hpp"
 #include "analyzers/strings.hpp"
+#include "analyzers/deobfuscator.hpp"
 #include <algorithm>
 #include <iomanip>
 #include <iostream>
@@ -81,6 +82,7 @@ int main(int argc, char* argv[]) {
     auto iat_analysis = xray::analyzers::IatAnalyzer::analyze(parser);
     auto syscall_findings = xray::analyzers::SyscallAnalyzer::analyze(parser);
     auto strings_analysis = xray::analyzers::StringsAnalyzer::analyze(parser);
+    auto deobfuscated = xray::analyzers::Deobfuscator::analyze(parser);
 
     if (!silent) {
         std::cout << BANNER << "\n";
@@ -207,6 +209,28 @@ int main(int argc, char* argv[]) {
                       << "0x" << std::hex << std::setw(10) << artifact.offset << std::dec
                       << std::setw(22) << xray::analyzers::StringsAnalyzer::category_to_string(artifact.category)
                       << artifact.value << "\n";
+        }
+    }
+
+    if (!deobfuscated.findings.empty()) {
+        std::cout << "\nDeobfuscated Strings Recovered:\n";
+        std::cout << std::left
+                  << std::setw(12) << "Offset"
+                  << std::setw(16) << "Method"
+                  << std::setw(10) << "Key"
+                  << "Decoded Value\n";
+        std::cout << std::string(72, '-') << "\n";
+
+        for (const auto& item : deobfuscated.findings) {
+            std::cout << std::left
+                      << "0x" << std::hex << std::setw(10) << item.offset
+                      << std::setw(16) << xray::analyzers::Deobfuscator::type_to_string(item.type);
+            if (item.type == xray::analyzers::DeobfuscationType::Base64) {
+                std::cout << std::setw(10) << "-";
+            } else {
+                std::cout << "0x" << std::hex << std::setw(8) << item.key;
+            }
+            std::cout << std::dec << item.decoded_value << "\n";
         }
     }
 

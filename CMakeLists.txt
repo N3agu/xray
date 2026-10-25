@@ -22,4 +22,5 @@ add_executable(xray
     src/analyzers/iat.cpp
     src/analyzers/syscalls.cpp
     src/analyzers/strings.cpp
+    src/analyzers/deobfuscator.cpp
 )
