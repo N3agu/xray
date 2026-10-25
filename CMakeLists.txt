@@ -24,4 +24,6 @@ add_executable(xray
     src/analyzers/strings.cpp
     src/analyzers/deobfuscator.cpp
     src/scoring/engine.cpp
+    src/analyzers/anomalies.cpp
+    src/output/reporter.cpp
 )

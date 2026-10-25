@@ -9,6 +9,7 @@ constexpr uint16_t OPT_HDR32_MAGIC = 0x10B;
 constexpr uint16_t OPT_HDR64_MAGIC = 0x20B;
 
 constexpr size_t DIRECTORY_ENTRY_IMPORT = 1;
+constexpr size_t DIRECTORY_ENTRY_TLS    = 9;
 
 constexpr uint32_t SCN_MEM_EXECUTE = 0x20000000;
 constexpr uint32_t SCN_MEM_READ    = 0x40000000;
@@ -147,6 +148,24 @@ struct ImageImportDescriptor {
 struct ImageImportByName {
     uint16_t hint;
     char name[1];
+};
+
+struct ImageTlsDirectory32 {
+    uint32_t start_address_of_raw_data;
+    uint32_t end_address_of_raw_data;
+    uint32_t address_of_index;
+    uint32_t address_of_callbacks;
+    uint32_t size_of_zero_fill;
+    uint32_t characteristics;
+};
+
+struct ImageTlsDirectory64 {
+    uint64_t start_address_of_raw_data;
+    uint64_t end_address_of_raw_data;
+    uint64_t address_of_index;
+    uint64_t address_of_callbacks;
+    uint32_t size_of_zero_fill;
+    uint32_t characteristics;
 };
 
 #pragma pack(pop)

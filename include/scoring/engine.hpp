@@ -4,6 +4,7 @@
 #include "analyzers/syscalls.hpp"
 #include "analyzers/strings.hpp"
 #include "analyzers/deobfuscator.hpp"
+#include "analyzers/anomalies.hpp"
 #include <string>
 #include <vector>
 
@@ -34,7 +35,8 @@ public:
         const analyzers::IatAnalysisResult& iat,
         const std::vector<analyzers::SyscallStub>& syscalls,
         const analyzers::StringsAnalysisResult& strings,
-        const analyzers::DeobfuscationResult& deobf
+        const analyzers::DeobfuscationResult& deobf,
+        const analyzers::StructuralAnomaliesResult& anomalies
     );
 
     static std::string level_to_string(ThreatLevel level);

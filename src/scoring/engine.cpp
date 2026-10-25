@@ -17,7 +17,8 @@ RiskReport RiskEngine::evaluate(
     const analyzers::IatAnalysisResult& iat,
     const std::vector<analyzers::SyscallStub>& syscalls,
     const analyzers::StringsAnalysisResult& strings,
-    const analyzers::DeobfuscationResult& deobf
+    const analyzers::DeobfuscationResult& deobf,
+    const analyzers::StructuralAnomaliesResult& anomalies
 ) {
     RiskReport report;
 
@@ -78,6 +79,24 @@ RiskReport RiskEngine::evaluate(
             "LOW_IMPORT_COUNT",
             10,
             "Import count < 5 indicates manual API resolution or minimal stub"
+        });
+    }
+
+    // TLS callbacks execute code before main entrypoint (weight: 25)
+    if (!anomalies.tls_callbacks.empty()) {
+        report.triggered_rules.push_back({
+            "TLS_CALLBACKS_PRESENT",
+            25,
+            "Pre-entrypoint TLS callback routines registered"
+        });
+    }
+
+    // High-entropy overlay(> 7.2) larger than 512 bytes indicates appended encrypted stage (weight: 20)
+    if (anomalies.overlay.present && anomalies.overlay.entropy > 7.2 && anomalies.overlay.size > 512) {
+        report.triggered_rules.push_back({
+            "HIGH_ENTROPY_OVERLAY",
+            20,
+            "Encrypted or compressed trailing overlay data appended to binary"
         });
     }
 

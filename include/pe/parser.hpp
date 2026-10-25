@@ -30,8 +30,12 @@ public:
     [[nodiscard]] uint32_t entry_point_rva() const noexcept { return entry_point_rva_; }
     [[nodiscard]] const std::vector<SectionInfo>& sections() const noexcept { return sections_; }
     [[nodiscard]] std::span<const uint8_t> raw_buffer() const noexcept { return buffer_; }
+    
     [[nodiscard]] const DataDirectory& import_directory() const noexcept { 
         return data_directories_[DIRECTORY_ENTRY_IMPORT]; 
+    }
+    [[nodiscard]] const DataDirectory& tls_directory() const noexcept { 
+        return data_directories_[DIRECTORY_ENTRY_TLS]; 
     }
 
     [[nodiscard]] std::optional<uint32_t> rva_to_offset(uint32_t rva) const noexcept;
