@@ -20,4 +20,5 @@ add_executable(xray
     src/pe/parser.cpp
     src/analyzers/entropy.cpp
     src/analyzers/iat.cpp
+    src/analyzers/syscalls.cpp
 )

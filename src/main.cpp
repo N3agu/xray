@@ -2,6 +2,7 @@
 #include "pe/parser.hpp"
 #include "analyzers/entropy.hpp"
 #include "analyzers/iat.hpp"
+#include "analyzers/syscalls.hpp"
 #include <algorithm>
 #include <iomanip>
 #include <iostream>
@@ -77,6 +78,7 @@ int main(int argc, char* argv[]) {
 
     auto section_analyses = xray::analyzers::SectionAnalyzer::analyze(parser);
     auto iat_analysis = xray::analyzers::IatAnalyzer::analyze(parser);
+    auto syscall_findings = xray::analyzers::SyscallAnalyzer::analyze(parser);
 
     if (!silent) {
         std::cout << BANNER << "\n";
@@ -164,6 +166,26 @@ int main(int argc, char* argv[]) {
                       << std::setw(max_mod_len)  << api.module_name
                       << std::setw(max_cat_len)  << xray::analyzers::IatAnalyzer::category_to_string(api.category)
                       << api.threat_summary << "\n";
+        }
+    }
+
+    if (!syscall_findings.empty()) {
+        std::cout << "\nEvasive Syscall Stubs Detected:\n";
+        std::cout << std::left
+                  << std::setw(20) << "Type"
+                  << std::setw(10) << "Section"
+                  << std::setw(12) << "RVA"
+                  << std::setw(12) << "FileOffset"
+                  << "SSN\n";
+        std::cout << std::string(62, '-') << "\n";
+
+        for (const auto& sc : syscall_findings) {
+            std::cout << std::left
+                      << std::setw(20) << xray::analyzers::SyscallAnalyzer::type_to_string(sc.type)
+                      << std::setw(10) << sc.section_name
+                      << "0x" << std::hex << std::setw(10) << sc.rva
+                      << "0x" << std::setw(10) << sc.file_offset
+                      << "0x" << sc.ssn << std::dec << "\n";
         }
     }
 
